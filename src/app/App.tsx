@@ -105,6 +105,7 @@ import {
   TitleBar,
   type Tab as TitleTab,
 } from "./shell/TitleBar";
+import { BlueprintView } from "../features/blueprint/ui/BlueprintView";
 import {
   APP_VIEW_LABELS,
   appViewForTab,
@@ -1375,6 +1376,9 @@ function Workspace({
     setRightPanelClosing(false);
     saveRightPanelOpen(true);
   }, []);
+  const [workspaceMode, setWorkspaceMode] = useState<
+    "Blueprint" | "Development"
+  >("Development");
   const onToggleRightPanel = useCallback(() => {
     const next = !rightPanelOpenRef.current;
     rightPanelOpenRef.current = next;
@@ -13814,6 +13818,8 @@ function Workspace({
       onToggleRightPanel={
         showRightPanelToggle ? onToggleRightPanel : undefined
       }
+      workspaceMode={workspaceMode}
+      onWorkspaceModeChange={setWorkspaceMode}
       rightPanelDot={(rightPanelChanges?.files ?? 0) > 0}
       rightPanelUnavailable={!!activeAppView}
       canGoBack={!!monoViewId || tabVisitNav.canBack}
@@ -14120,9 +14126,19 @@ function Workspace({
                         {titleBarInBody ? workspaceTitleBar : null}
 
                         <main className="relative flex min-h-0 min-w-0 flex-1">
+                          {workspaceMode === "Blueprint" ? (
+                            <BlueprintView cwd={projectCwd} />
+                          ) : null}
+                          {/* Hidden, not unmounted, so sessions keep running.
+                              Hiding (instead of covering) also keeps WebKit
+                              from bitmap-scaling the zoomed blueprint. */}
                           <div
                             ref={dockGridRef}
-                            className="grid h-full min-h-0 min-w-0 flex-1"
+                            className={
+                              workspaceMode === "Blueprint"
+                                ? "hidden"
+                                : "grid h-full min-h-0 min-w-0 flex-1"
+                            }
                           >
                             {projectTerminals.map((dock) => {
                               const show =

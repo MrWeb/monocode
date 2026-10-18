@@ -142,6 +142,9 @@ type Props = {
   /** Inset layout: the right sidebar holding the project tools. */
   rightPanelOpen?: boolean;
   onToggleRightPanel?: () => void;
+  /** Blueprint swaps the workspace for a drawing grid. */
+  workspaceMode?: "Blueprint" | "Development";
+  onWorkspaceModeChange?: (mode: "Blueprint" | "Development") => void;
   /** The working tree has changes; dots the right panel toggle. */
   rightPanelDot?: boolean;
   /** An app view (Search, Inbox, Notes, Automations) is shown, which has no
@@ -756,6 +759,8 @@ function TitleBarComponent({
   inset = false,
   rightPanelOpen = false,
   onToggleRightPanel,
+  workspaceMode = "Development",
+  onWorkspaceModeChange,
   rightPanelDot = false,
   rightPanelUnavailable = false,
   canGoBack = false,
@@ -1061,7 +1066,30 @@ function TitleBarComponent({
         {showRightPanelToggle ? (
           // Clear of the window's right edge, like the traffic lights' inset
           // on the left.
-          <div className="flex items-center pl-1.5 pr-3">
+          <div className="flex items-center gap-2 pl-1.5 pr-3">
+            <div
+              role="radiogroup"
+              aria-label="Workspace mode"
+              data-tauri-drag-region="false"
+              className="flex gap-0.5 rounded-md border border-content/10 p-0.5 text-[11px]"
+            >
+              {(["Blueprint", "Development"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="radio"
+                  aria-checked={workspaceMode === m}
+                  onClick={() => onWorkspaceModeChange?.(m)}
+                  className={`rounded-[4px] px-2 py-0.5 ${
+                    workspaceMode === m
+                      ? "bg-selection text-content"
+                      : "text-content/50 hover:text-content"
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
             <IconButton
               label={
                 changesDot
