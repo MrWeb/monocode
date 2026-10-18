@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { borderPoint, sideOf } from "./geometry";
+import { borderPoint, sideOf, spreadBoxes } from "./geometry";
 
 // Arrows attach where the line between two boxes leaves each box, so the dot
 // slides along the border as boxes move: below means bottom, right means
@@ -39,5 +39,34 @@ describe("borderPoint", () => {
     const end = { x: 170, y: 30 }; // right end circle center, radius 30
     expect(Math.hypot(p.x - end.x, p.y - end.y)).toBeCloseTo(30);
     expect(p.x).toBeLessThan(200);
+  });
+});
+
+// "Arrange" must never leave boxes stacked or touching, but should keep the
+// user's layout: boxes already far apart do not move.
+describe("spreadBoxes", () => {
+  const box = (x: number, y: number) => ({ x, y, width: 160, height: 60 });
+  const gapBetween = (a: ReturnType<typeof box>, b: ReturnType<typeof box>) =>
+    Math.max(
+      Math.abs(a.x + 80 - (b.x + 80)) - 160,
+      Math.abs(a.y + 30 - (b.y + 30)) - 60,
+    );
+
+  it("separates boxes stacked on top of each other", () => {
+    const [a, b, c] = spreadBoxes([box(0, 0), box(0, 0), box(10, 5)], 40);
+    expect(gapBetween(a, b)).toBeGreaterThanOrEqual(39.9);
+    expect(gapBetween(a, c)).toBeGreaterThanOrEqual(39.9);
+    expect(gapBetween(b, c)).toBeGreaterThanOrEqual(39.9);
+  });
+
+  it("leaves boxes that are already spaced out where they are", () => {
+    const input = [box(0, 0), box(400, 0), box(0, 300)];
+    expect(spreadBoxes(input, 40)).toEqual(input);
+  });
+
+  it("pushes apart boxes that are too close, keeping their order", () => {
+    const [a, b] = spreadBoxes([box(0, 0), box(170, 0)], 40);
+    expect(b.x - a.x - 160).toBeCloseTo(40);
+    expect(a.x).toBeLessThan(b.x);
   });
 });

@@ -14,6 +14,7 @@ import {
   getBezierPath,
   Background,
   BackgroundVariant,
+  ControlButton,
   Controls,
   Handle,
   MarkerType,
@@ -27,6 +28,7 @@ import {
   useNodeConnections,
   useStore,
   useStoreApi,
+  useReactFlow,
   useNodesState,
   type Connection,
   type ConnectionLineComponentProps,
@@ -42,7 +44,15 @@ import {
   readTextFile,
   writeTextFile,
 } from "../../../platform/tauri/fs";
-import { borderPoint, center, sideOf, type Rect } from "../geometry";
+import {
+  borderPoint,
+  center,
+  sideOf,
+  spreadBoxes,
+  type Rect,
+} from "../geometry";
+import { DashboardSquare, Flowchart } from "../../../shared/ui/icons";
+import { autoLayout } from "../layout";
 import {
   ARROW_COLOR,
   BLUEPRINT_FILE,
@@ -327,6 +337,31 @@ function BlueprintCanvas({ cwd }: { cwd: string }) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lastSaved = useRef("");
+  const { fitView } = useReactFlow();
+
+  const boxRects = () =>
+    nodes.map((n) => ({
+      id: n.id,
+      x: n.position.x,
+      y: n.position.y,
+      width: n.measured?.width ?? 0,
+      height: n.measured?.height ?? 0,
+    }));
+  // Moves boxes to new positions, saved like a drag, then refits the view.
+  const placeBoxes = (placed: { id: string; x: number; y: number }[]) => {
+    const at = new Map(placed.map((b) => [b.id, b]));
+    setNodes((ns) =>
+      ns.map((n) => {
+        const b = at.get(n.id);
+        return b ? { ...n, position: { x: b.x, y: b.y } } : n;
+      }),
+    );
+    requestAnimationFrame(() => void fitView({ duration: 300 }));
+  };
+  // Spread: keep the drawing, only push apart boxes that overlap or touch.
+  const arrange = () => placeBoxes(spreadBoxes(boxRects()));
+  // Auto layout: redo the whole drawing in columns that follow the arrows.
+  const relayout = () => placeBoxes(autoLayout(boxRects(), edges));
   const path = `${cwd}/${BLUEPRINT_FILE}`;
 
   useEffect(() => {
@@ -501,7 +536,22 @@ function BlueprintCanvas({ cwd }: { cwd: string }) {
             gap={80}
             color="rgba(255,255,255,0.3)"
           />
-          <Controls showInteractive={false} />
+          <Controls showInteractive={false}>
+            <ControlButton
+              onClick={arrange}
+              title="Arrange boxes"
+              aria-label="Arrange boxes"
+            >
+              <DashboardSquare />
+            </ControlButton>
+            <ControlButton
+              onClick={relayout}
+              title="Auto layout (follows the arrows)"
+              aria-label="Auto layout"
+            >
+              <Flowchart />
+            </ControlButton>
+          </Controls>
           <CrispZoom />
         </ReactFlow>
       </div>

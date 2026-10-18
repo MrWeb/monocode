@@ -52,3 +52,43 @@ export function sideOf(r: Rect, p: Point): Side {
   if (Math.abs(nx) >= Math.abs(ny)) return nx >= 0 ? "right" : "left";
   return ny >= 0 ? "bottom" : "top";
 }
+
+/**
+ * Pushes overlapping or too-close boxes apart until every pair is at least
+ * `gap` apart, keeping the drawing's overall arrangement. Each overlap is
+ * resolved along the axis that needs the smaller move, split between the two
+ * boxes.
+ */
+export function spreadBoxes<T extends Rect>(boxes: T[], gap = 48): T[] {
+  const out = boxes.map((b) => ({ ...b }));
+  // ponytail: O(n²) per pass, fine for hand-drawn blueprints (tens of boxes).
+  for (let pass = 0; pass < 200; pass++) {
+    let moved = false;
+    for (let i = 0; i < out.length; i++) {
+      for (let j = i + 1; j < out.length; j++) {
+        const a = out[i];
+        const b = out[j];
+        const ca = center(a);
+        const cb = center(b);
+        const dx = cb.x - ca.x;
+        const dy = cb.y - ca.y;
+        const needX = (a.width + b.width) / 2 + gap - Math.abs(dx);
+        const needY = (a.height + b.height) / 2 + gap - Math.abs(dy);
+        if (needX <= 0 || needY <= 0) continue;
+        moved = true;
+        // Same center: no direction to push, so pick one deterministically.
+        if (needX <= needY) {
+          const s = (dx === 0 ? (i < j ? 1 : -1) : Math.sign(dx)) * (needX / 2);
+          a.x -= s;
+          b.x += s;
+        } else {
+          const s = (dy === 0 ? 1 : Math.sign(dy)) * (needY / 2);
+          a.y -= s;
+          b.y += s;
+        }
+      }
+    }
+    if (!moved) break;
+  }
+  return out;
+}
