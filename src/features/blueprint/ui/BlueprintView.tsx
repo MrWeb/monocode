@@ -91,6 +91,11 @@ type BoxData = {
 };
 type BoxNode = Node<BoxData, "box">;
 
+/**
+ * A blueprint box on the canvas: type, title and instructions, with a
+ * hidden drop target on the left and the start dot for new arrows on the
+ * right. Its border, shape, line style and selection ring follow its data.
+ */
 function Box({ data, selected }: NodeProps<BoxNode>) {
   const linked = useNodeConnections({ handleType: "source" }).length > 0;
   const connecting = useConnection((c) => c.inProgress);
@@ -165,6 +170,7 @@ function Box({ data, selected }: NodeProps<BoxNode>) {
 
 const NODE_TYPES = { box: Box };
 
+/** Labelled segmented control for a small set of options (Shape, Line). */
 function Choice<T extends string>({
   label,
   options,
@@ -230,6 +236,7 @@ function Choice<T extends string>({
 /** How far a start dot sits inside the box's border. */
 const DOT_INSET = 2;
 
+/** Where the creation dot sits: middle of the right edge, just inside the border. */
 function rightMiddle(n: InternalNode) {
   return {
     x: n.internals.positionAbsolute.x + (n.measured.width ?? 0) - DOT_INSET,
@@ -237,6 +244,7 @@ function rightMiddle(n: InternalNode) {
   };
 }
 
+/** A node's box in canvas coordinates, from React Flow's measured size. */
 function rectOf(n: InternalNode): Rect {
   return {
     ...n.internals.positionAbsolute,
@@ -310,6 +318,7 @@ function BoxEdge({ source, target, label, markerEnd, style, data }: EdgeProps) {
   );
 }
 
+/** Preview line while dragging a new arrow: from the start dot to the mouse, or to the hovered box's border. */
 function BoxConnectionLine({
   fromNode,
   toNode,
@@ -375,9 +384,11 @@ function CrispZoom() {
   }, [store]);
   return null;
 }
+/** Closed arrowhead in the arrow's own color. */
 const arrowHead = (color: string) =>
   ({ type: MarkerType.ArrowClosed, color }) as const;
 
+/** Writes the blueprint file, creating `.monocode/` on the first save. */
 async function writeBlueprint(save: {
   path: string;
   cwd: string;
@@ -401,6 +412,7 @@ function nodesFrom(bp: Blueprint): BoxNode[] {
     data,
   }));
 }
+/** File arrows → canvas edges, drawn above the boxes so their start dots show. */
 function edgesFrom(bp: Blueprint): Edge[] {
   return bp.edges.map(({ line, color, ...e }) => ({
     ...e,
@@ -437,6 +449,11 @@ type ImplementProps = {
   onImplement?: (card: NoteComposerCard) => void;
 };
 
+/**
+ * The Blueprint editor: canvas, controls and sidebar. Loads and autosaves
+ * the project's blueprint file, keeps undo/redo history, and hands briefs to
+ * the chat through `onImplement`.
+ */
 function BlueprintCanvas({
   cwd,
   onImplement,
@@ -1054,8 +1071,10 @@ function BlueprintCanvas({
   );
 }
 
-// Nothing else in the app catches render errors, so one here would blank the
-// whole window.
+/**
+ * Shows the error in place of the canvas: nothing else in the app catches
+ * render errors, so one here would blank the whole window.
+ */
 class BlueprintBoundary extends Component<
   { children: ReactNode },
   { error: Error | null }
@@ -1078,6 +1097,7 @@ class BlueprintBoundary extends Component<
   }
 }
 
+/** Blueprint mode for a project, with its own React Flow store and error boundary. */
 export function BlueprintView({
   cwd,
   onImplement,

@@ -58,10 +58,12 @@ export const BLUEPRINT_FILE = ".monocode/blueprint.json";
 /** Default arrow color: near-white, readable on the blue canvas. */
 export const ARROW_COLOR = "#e8f1ff";
 
+/** Default color of a box type; falls back to the General color. */
 export function kindColor(kind: BlueprintKind): string {
   return BLUEPRINT_KINDS.find((k) => k.id === kind)?.color ?? "#e5e7eb";
 }
 
+/** File text for a blueprint: pretty-printed JSON with a trailing newline, so diffs stay readable. */
 export function serializeBlueprint(blueprint: Blueprint): string {
   return `${JSON.stringify(blueprint, null, 2)}\n`;
 }

@@ -4,6 +4,7 @@ export type History = { past: string[]; present: string; future: string[] };
 // ponytail: whole-file snapshots; fine for blueprints of a few hundred boxes.
 const LIMIT = 100;
 
+/** A history with `present` as its only state: nothing to undo or redo yet. */
 export function createHistory(present: string): History {
   return { past: [], present, future: [] };
 }
@@ -18,6 +19,7 @@ export function record(h: History, next: string): History {
   };
 }
 
+/** Steps back to the previous state, keeping the current one for redo. */
 export function undo(h: History): History {
   if (h.past.length === 0) return h;
   return {
@@ -27,6 +29,7 @@ export function undo(h: History): History {
   };
 }
 
+/** Steps forward to the next undone state. */
 export function redo(h: History): History {
   if (h.future.length === 0) return h;
   return {

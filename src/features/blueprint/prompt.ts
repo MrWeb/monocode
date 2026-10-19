@@ -4,6 +4,7 @@ import {
   type BlueprintNode,
 } from "./blueprint";
 
+/** Display name of a box's type, as shown in the sidebar. */
 const kindLabel = (n: BlueprintNode) =>
   BLUEPRINT_KINDS.find((k) => k.id === n.kind)?.label ?? n.kind;
 

@@ -20,6 +20,10 @@ type Props = {
   embedded?: boolean;
 };
 
+/**
+ * Compact note card for the composer and sent messages. A card carrying a
+ * `brief` (text that is not a saved note) expands to show what was sent.
+ */
 export function NoteMiniCard({ card, onDismiss, embedded = false }: Props) {
   const logos = useTabGroupLogos();
   const [mascots] = useState(loadTabGroupMascots);

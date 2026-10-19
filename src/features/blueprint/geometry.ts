@@ -4,6 +4,7 @@ export type Rect = { x: number; y: number; width: number; height: number };
 export type Point = { x: number; y: number };
 export type Side = "top" | "right" | "bottom" | "left";
 
+/** Center point of a box. */
 export function center(r: Rect): Point {
   return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
 }
