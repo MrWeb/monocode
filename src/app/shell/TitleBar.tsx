@@ -1057,9 +1057,39 @@ function TitleBarComponent({
   // A Mono's own overview holds its changes; app views have none beside them.
   const rightPanelOff = !!mono || rightPanelUnavailable;
   const changesDot = rightPanelDot && !rightPanelOff;
+  // Blueprint / Development: in the inset layout it sits beside the right
+  // sidebar toggle; the classic layout has no such toggle, so it stands alone.
+  const showModeToggle =
+    !mono && showCurrentProject && Boolean(onWorkspaceModeChange);
+  const modeToggle = showModeToggle ? (
+    <div
+      role="radiogroup"
+      aria-label="Workspace mode"
+      data-tauri-drag-region="false"
+      className="flex gap-0.5 rounded-md border border-content/10 p-0.5 text-[11px]"
+    >
+      {(["Blueprint", "Development"] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          role="radio"
+          aria-checked={workspaceMode === m}
+          onClick={() => onWorkspaceModeChange?.(m)}
+          className={`rounded-[4px] px-2 py-0.5 ${
+            workspaceMode === m
+              ? "bg-selection text-content"
+              : "text-content/50 hover:text-content"
+          }`}
+        >
+          {m}
+        </button>
+      ))}
+    </div>
+  ) : null;
   const trailingControls =
     showTrailingActions ||
     showRightPanelToggle ||
+    showModeToggle ||
     (mono && (onToggleMonoOverview || onOpenMonoSettings)) ||
     (!IS_MAC && !hideWindowControls) ? (
       <div className="flex h-full shrink-0 items-stretch">
@@ -1067,29 +1097,7 @@ function TitleBarComponent({
           // Clear of the window's right edge, like the traffic lights' inset
           // on the left.
           <div className="flex items-center gap-2 pl-1.5 pr-3">
-            <div
-              role="radiogroup"
-              aria-label="Workspace mode"
-              data-tauri-drag-region="false"
-              className="flex gap-0.5 rounded-md border border-content/10 p-0.5 text-[11px]"
-            >
-              {(["Blueprint", "Development"] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  role="radio"
-                  aria-checked={workspaceMode === m}
-                  onClick={() => onWorkspaceModeChange?.(m)}
-                  className={`rounded-[4px] px-2 py-0.5 ${
-                    workspaceMode === m
-                      ? "bg-selection text-content"
-                      : "text-content/50 hover:text-content"
-                  }`}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
+            {modeToggle}
             <IconButton
               label={
                 changesDot
@@ -1114,6 +1122,9 @@ function TitleBarComponent({
               </span>
             </IconButton>
           </div>
+        ) : null}
+        {!showRightPanelToggle && showModeToggle ? (
+          <div className="flex items-center pl-1.5 pr-3">{modeToggle}</div>
         ) : null}
         {mono && (onToggleMonoOverview || onOpenMonoSettings) ? (
           <MonoViewActions
