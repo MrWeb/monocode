@@ -60,6 +60,7 @@ import {
   UndoArrow,
 } from "../../../shared/ui/icons";
 import { autoLayout } from "../layout";
+import { radioArrowStep } from "../../../shared/lib/radioKeys";
 import { useRailTooltip } from "../../../app/shell/RailTooltip";
 import { MOD, SHIFT } from "../../../platform/tauri/platform";
 import { blueprintFromCodePrompt, blueprintPrompt } from "../prompt";
@@ -189,7 +190,23 @@ function Choice<T extends string>({
             type="button"
             role="radio"
             aria-checked={value === o.id}
+            tabIndex={value === o.id ? 0 : -1}
             onClick={() => onChange(o.id)}
+            onKeyDown={(e) => {
+              const next = radioArrowStep(
+                e.key,
+                options.map((x) => x.id),
+                o.id,
+              );
+              if (!next) return;
+              e.preventDefault();
+              onChange(next);
+              const i = options.findIndex((x) => x.id === next);
+              (
+                e.currentTarget.parentElement?.children[i] as
+                  HTMLElement | undefined
+              )?.focus();
+            }}
             className={`rounded-[5px] px-2 py-1 ${
               value === o.id
                 ? "bg-selection text-content"
@@ -361,6 +378,20 @@ function CrispZoom() {
 const arrowHead = (color: string) =>
   ({ type: MarkerType.ArrowClosed, color }) as const;
 
+async function writeBlueprint(save: {
+  path: string;
+  cwd: string;
+  text: string;
+}) {
+  try {
+    await writeTextFile(save.path, save.text);
+  } catch {
+    // First save: .monocode/ does not exist yet.
+    await createPath(save.cwd, BLUEPRINT_FILE, false).catch(() => {});
+    await writeTextFile(save.path, save.text);
+  }
+}
+
 /** File shape → canvas state. */
 function nodesFrom(bp: Blueprint): BoxNode[] {
   return bp.nodes.map(({ id, x, y, ...data }) => ({
@@ -421,6 +452,13 @@ function BlueprintCanvas({
   const [selectMode, setSelectMode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lastSaved = useRef("");
+  // The file the canvas currently holds. Saves only go there, so a project
+  // switch can never write one project's drawing into another's file.
+  const loadedPath = useRef<string | null>(null);
+  // A save waiting for its debounce, flushed if Blueprint closes first.
+  const pending = useRef<{ path: string; cwd: string; text: string } | null>(
+    null,
+  );
   const { fitView } = useReactFlow();
 
   const boxRects = () =>
@@ -450,32 +488,39 @@ function BlueprintCanvas({
 
   useEffect(() => {
     let live = true;
+    loadedPath.current = null;
     setReady(false);
     setError(null);
     readTextFile(path)
       .then((text) => {
+        // A slower read for the previous project must not land here.
+        if (!live) return;
         const bp = parseBlueprint(text);
         lastSaved.current = serializeBlueprint(bp);
+        loadedPath.current = path;
         setHistory(createHistory(lastSaved.current));
         setNodes(nodesFrom(bp));
         setEdges(edgesFrom(bp));
-        if (live) setReady(true);
+        setReady(true);
       })
       .catch((e) => {
         if (!live) return;
         setNodes([]);
         setEdges([]);
-        lastSaved.current = "";
-        setHistory(
-          createHistory(
-            serializeBlueprint({ version: 1, nodes: [], edges: [] }),
-          ),
-        );
+        // Same text an untouched empty canvas serializes to, so just opening
+        // Blueprint never creates .monocode/blueprint.json.
+        lastSaved.current = serializeBlueprint({
+          version: 1,
+          nodes: [],
+          edges: [],
+        });
+        setHistory(createHistory(lastSaved.current));
         // A missing file starts an empty blueprint; anything else (corrupt,
         // unreadable) stays untouched and is never overwritten.
-        if (/no such file|not found|os error 2/i.test(String(e)))
+        if (/no such file|not found|os error 2/i.test(String(e))) {
+          loadedPath.current = path;
           setReady(true);
-        else setError(`Cannot load ${BLUEPRINT_FILE}: ${String(e)}`);
+        } else setError(`Cannot load ${BLUEPRINT_FILE}: ${String(e)}`);
       });
     return () => {
       live = false;
@@ -523,18 +568,18 @@ function BlueprintCanvas({
   }, [travel]);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || loadedPath.current !== path) return;
     const text = serializeBlueprint(toBlueprint(nodes, edges));
-    if (text === lastSaved.current) return;
+    if (text === lastSaved.current) {
+      pending.current = null;
+      return;
+    }
+    const save = { path, cwd, text };
+    pending.current = save;
     const timer = setTimeout(async () => {
       try {
-        try {
-          await writeTextFile(path, text);
-        } catch {
-          // First save: .monocode/ does not exist yet.
-          await createPath(cwd, BLUEPRINT_FILE, false).catch(() => {});
-          await writeTextFile(path, text);
-        }
+        await writeBlueprint(save);
+        if (pending.current === save) pending.current = null;
         lastSaved.current = text;
         setError(null);
       } catch (e) {
@@ -543,6 +588,18 @@ function BlueprintCanvas({
     }, 500);
     return () => clearTimeout(timer);
   }, [nodes, edges, ready, path, cwd]);
+
+  // Leaving Blueprint (e.g. Implement) or switching project unmounts or
+  // reloads the canvas before the debounce fires: write the last edit now,
+  // to the file it belongs to.
+  useEffect(
+    () => () => {
+      const save = pending.current;
+      pending.current = null;
+      if (save) void writeBlueprint(save).catch(() => {});
+    },
+    [path],
+  );
 
   const onConnect = useCallback(
     (c: Connection) =>

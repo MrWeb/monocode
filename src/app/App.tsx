@@ -2025,6 +2025,11 @@ function Workspace({
     ? sessions.find((session) => session.id === monoViewId)
     : undefined;
   const monoCovers = !!monoViewId;
+  // Blueprint needs a project, and a Mono in view takes over the workspace:
+  // in either case show the workspace, or nothing could switch back (the
+  // title bar hides the mode toggle for Monos and projectless windows).
+  const blueprintShown =
+    workspaceMode === "Blueprint" && !monoCovers && looksLikeProject(projectCwd);
   // The open Mono's title tab, in the inset layout.
   const monoViewTabId = useMemo(() => {
     const monoId = monoViewId ? monoForSession(monoViewId)?.id : undefined;
@@ -14128,7 +14133,7 @@ function Workspace({
                         {titleBarInBody ? workspaceTitleBar : null}
 
                         <main className="relative flex min-h-0 min-w-0 flex-1">
-                          {workspaceMode === "Blueprint" ? (
+                          {blueprintShown ? (
                             <BlueprintView
                               cwd={projectCwd}
                               onImplement={(card) => {
@@ -14143,7 +14148,7 @@ function Workspace({
                           <div
                             ref={dockGridRef}
                             className={
-                              workspaceMode === "Blueprint"
+                              blueprintShown
                                 ? "hidden"
                                 : "grid h-full min-h-0 min-w-0 flex-1"
                             }

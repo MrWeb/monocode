@@ -51,6 +51,7 @@ import {
   type MonoState,
 } from "../../features/monos/model/mono";
 import { IS_MAC, IS_WIN, MOD, SHIFT } from "../../platform/tauri/platform";
+import { radioArrowStep } from "../../shared/lib/radioKeys";
 import { useTrafficLightsVisible } from "../../platform/tauri/useTrafficLightsVisible";
 import type { RecentProject } from "../../features/projects/model/recents";
 import {
@@ -1059,6 +1060,7 @@ function TitleBarComponent({
   const changesDot = rightPanelDot && !rightPanelOff;
   // Blueprint / Development: in the inset layout it sits beside the right
   // sidebar toggle; the classic layout has no such toggle, so it stands alone.
+  const WORKSPACE_MODES = ["Blueprint", "Development"] as const;
   const showModeToggle =
     !mono && showCurrentProject && Boolean(onWorkspaceModeChange);
   const modeToggle = showModeToggle ? (
@@ -1068,13 +1070,27 @@ function TitleBarComponent({
       data-tauri-drag-region="false"
       className="flex gap-0.5 rounded-md border border-content/10 p-0.5 text-[11px]"
     >
-      {(["Blueprint", "Development"] as const).map((m) => (
+      {WORKSPACE_MODES.map((m) => (
         <button
           key={m}
           type="button"
           role="radio"
           aria-checked={workspaceMode === m}
+          // Radio group: one tab stop, arrow keys move between the options.
+          tabIndex={workspaceMode === m ? 0 : -1}
           onClick={() => onWorkspaceModeChange?.(m)}
+          onKeyDown={(e) => {
+            const next = radioArrowStep(e.key, WORKSPACE_MODES, m);
+            if (!next) return;
+            e.preventDefault();
+            onWorkspaceModeChange?.(next);
+            (
+              e.currentTarget.parentElement?.querySelector(
+                `[data-mode="${next}"]`,
+              ) as HTMLElement | null
+            )?.focus();
+          }}
+          data-mode={m}
           className={`rounded-[4px] px-2 py-0.5 ${
             workspaceMode === m
               ? "bg-selection text-content"

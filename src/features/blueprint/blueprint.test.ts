@@ -53,7 +53,7 @@ describe("blueprint file", () => {
 
   it("reads files saved before shapes and lines existed as solid rectangles", () => {
     const { shape: _s, line: _l, ...old } = sample.nodes[1];
-    const text = JSON.stringify({ ...sample, nodes: [old] });
+    const text = JSON.stringify({ ...sample, nodes: [old], edges: [] });
     const node = parseBlueprint(text).nodes[0];
     expect(node.shape).toBe("rectangle");
     expect(node.line).toBe("solid");
@@ -69,8 +69,17 @@ describe("blueprint file", () => {
     const text = JSON.stringify({
       ...sample,
       nodes: [{ ...sample.nodes[0], kind: "wat" }],
+      edges: [],
     });
     expect(parseBlueprint(text).nodes[0].kind).toBe("general");
+  });
+
+  it("rejects arrows that point to a missing box", () => {
+    const text = JSON.stringify({
+      ...sample,
+      edges: [{ ...sample.edges[0], target: "gone" }],
+    });
+    expect(() => parseBlueprint(text)).toThrow(/does not exist/);
   });
 
   it("rejects files that are not blueprints", () => {
