@@ -11,6 +11,7 @@ import {
 import {
   addEdge,
   BaseEdge,
+  EdgeLabelRenderer,
   getBezierPath,
   Background,
   BackgroundVariant,
@@ -51,8 +52,19 @@ import {
   spreadBoxes,
   type Rect,
 } from "../geometry";
-import { DashboardSquare, Flowchart } from "../../../shared/ui/icons";
+import {
+  CursorMagicSelection,
+  DashboardSquare,
+  Flowchart,
+  RedoArrow,
+  UndoArrow,
+} from "../../../shared/ui/icons";
 import { autoLayout } from "../layout";
+import { useRailTooltip } from "../../../app/shell/RailTooltip";
+import { MOD, SHIFT } from "../../../platform/tauri/platform";
+import { blueprintFromCodePrompt, blueprintPrompt } from "../prompt";
+import { createHistory, record, redo, undo, type History } from "../history";
+import type { NoteComposerCard } from "../../notes";
 import {
   ARROW_COLOR,
   BLUEPRINT_FILE,
@@ -62,6 +74,7 @@ import {
   kindColor,
   parseBlueprint,
   serializeBlueprint,
+  type Blueprint,
   type BlueprintKind,
   type BlueprintLine,
   type BlueprintShape,
@@ -94,8 +107,13 @@ function Box({ data, selected }: NodeProps<BoxNode>) {
       style={{
         borderColor: data.color,
         borderStyle: data.line,
-        outline: selected ? `2px solid ${data.color}` : undefined,
-        outlineOffset: 2,
+        // Selection must read at a glance on the blue canvas, whatever the
+        // box color: a white ring with a soft glow.
+        outline: selected ? "3px solid #fff" : undefined,
+        outlineOffset: 3,
+        boxShadow: selected
+          ? "0 0 0 9px rgba(255,255,255,0.25), 0 0 24px 6px rgba(255,255,255,0.35)"
+          : undefined,
       }}
     >
       <Handle
@@ -247,10 +265,22 @@ function BoxEdge({ source, target, label, markerEnd, style, data }: EdgeProps) {
           stroke: String(data?.color ?? ARROW_COLOR),
           strokeDasharray: data?.line === "dashed" ? "6 4" : undefined,
         }}
-        label={label}
-        labelX={labelX}
-        labelY={labelY}
       />
+      {typeof label === "string" && label.trim() ? (
+        // HTML label instead of React Flow's SVG text: SVG text is measured
+        // with getBBox, which CrispZoom's CSS zoom throws off, leaving the
+        // text off-center. A flex box centers it at any zoom.
+        <EdgeLabelRenderer>
+          <div
+            className="blueprint-edge-label"
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            }}
+          >
+            {label}
+          </div>
+        </EdgeLabelRenderer>
+      ) : null}
       <circle
         cx={a.x}
         cy={a.y}
@@ -331,10 +361,64 @@ function CrispZoom() {
 const arrowHead = (color: string) =>
   ({ type: MarkerType.ArrowClosed, color }) as const;
 
-function BlueprintCanvas({ cwd }: { cwd: string }) {
+/** File shape → canvas state. */
+function nodesFrom(bp: Blueprint): BoxNode[] {
+  return bp.nodes.map(({ id, x, y, ...data }) => ({
+    id,
+    type: "box",
+    position: { x, y },
+    data,
+  }));
+}
+function edgesFrom(bp: Blueprint): Edge[] {
+  return bp.edges.map(({ line, color, ...e }) => ({
+    ...e,
+    type: "box",
+    zIndex: 1,
+    data: { line, color },
+    markerEnd: arrowHead(color),
+  }));
+}
+
+/** The canvas state in the file's shape. */
+function toBlueprint(nodes: BoxNode[], edges: Edge[]): Blueprint {
+  return {
+    version: 1,
+    nodes: nodes.map((n) => ({
+      id: n.id,
+      x: Math.round(n.position.x),
+      y: Math.round(n.position.y),
+      ...n.data,
+    })),
+    edges: edges.map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      label: typeof e.label === "string" ? e.label : "",
+      line: e.data?.line === "dashed" ? "dashed" : "solid",
+      color: String(e.data?.color ?? ARROW_COLOR),
+    })),
+  };
+}
+
+type ImplementProps = {
+  /** Opens a chat with the brief attached; the parent switches to Development. */
+  onImplement?: (card: NoteComposerCard) => void;
+};
+
+function BlueprintCanvas({
+  cwd,
+  onImplement,
+}: { cwd: string } & ImplementProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<BoxNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [ready, setReady] = useState(false);
+  // Empty blueprint: offer to start drawing or to draw it from the code.
+  const [startedDrawing, setStartedDrawing] = useState(false);
+  const controlTips = useRailTooltip("right");
+  const [history, setHistory] = useState<History>(() => createHistory(""));
+  // Select mode: dragging on empty canvas draws a selection box instead of panning.
+  const [selectMode, setSelectMode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lastSaved = useRef("");
   const { fitView } = useReactFlow();
@@ -372,23 +456,9 @@ function BlueprintCanvas({ cwd }: { cwd: string }) {
       .then((text) => {
         const bp = parseBlueprint(text);
         lastSaved.current = serializeBlueprint(bp);
-        setNodes(
-          bp.nodes.map(({ id, x, y, ...data }) => ({
-            id,
-            type: "box",
-            position: { x, y },
-            data,
-          })),
-        );
-        setEdges(
-          bp.edges.map(({ line, color, ...e }) => ({
-            ...e,
-            type: "box",
-            zIndex: 1,
-            data: { line, color },
-            markerEnd: arrowHead(color),
-          })),
-        );
+        setHistory(createHistory(lastSaved.current));
+        setNodes(nodesFrom(bp));
+        setEdges(edgesFrom(bp));
         if (live) setReady(true);
       })
       .catch((e) => {
@@ -396,6 +466,11 @@ function BlueprintCanvas({ cwd }: { cwd: string }) {
         setNodes([]);
         setEdges([]);
         lastSaved.current = "";
+        setHistory(
+          createHistory(
+            serializeBlueprint({ version: 1, nodes: [], edges: [] }),
+          ),
+        );
         // A missing file starts an empty blueprint; anything else (corrupt,
         // unreadable) stays untouched and is never overwritten.
         if (/no such file|not found|os error 2/i.test(String(e)))
@@ -407,25 +482,49 @@ function BlueprintCanvas({ cwd }: { cwd: string }) {
     };
   }, [path, setNodes, setEdges]);
 
+  // Undo/redo: a snapshot once the canvas has been still for a moment, so a
+  // drag or a burst of typing is one step. Selection and box sizes are not
+  // part of the file, so they never create steps.
   useEffect(() => {
     if (!ready) return;
-    const text = serializeBlueprint({
-      version: 1,
-      nodes: nodes.map((n) => ({
-        id: n.id,
-        x: Math.round(n.position.x),
-        y: Math.round(n.position.y),
-        ...n.data,
-      })),
-      edges: edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        label: typeof e.label === "string" ? e.label : "",
-        line: e.data?.line === "dashed" ? "dashed" : "solid",
-        color: String(e.data?.color ?? ARROW_COLOR),
-      })),
-    });
+    const text = serializeBlueprint(toBlueprint(nodes, edges));
+    const timer = setTimeout(() => setHistory((h) => record(h, text)), 400);
+    return () => clearTimeout(timer);
+  }, [nodes, edges, ready]);
+
+  const travel = useCallback(
+    (step: (h: History) => History) => {
+      const next = step(history);
+      if (next === history) return;
+      // The restored state equals next.present, so the snapshot effect
+      // records nothing and redo stays available.
+      setHistory(next);
+      const bp = parseBlueprint(next.present);
+      setNodes(nodesFrom(bp));
+      setEdges(edgesFrom(bp));
+    },
+    [history, setNodes, setEdges],
+  );
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      // Text fields keep their own undo.
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("input, textarea, select, [contenteditable]")) return;
+      const key = e.key.toLowerCase();
+      const redoKey = (key === "z" && e.shiftKey) || (key === "y" && e.ctrlKey);
+      if (!redoKey && key !== "z") return;
+      e.preventDefault();
+      travel(redoKey ? redo : undo);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [travel]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const text = serializeBlueprint(toBlueprint(nodes, edges));
     if (text === lastSaved.current) return;
     const timer = setTimeout(async () => {
       try {
@@ -485,8 +584,41 @@ function BlueprintCanvas({ cwd }: { cwd: string }) {
     ]);
   };
 
-  const selectedNode = nodes.find((n) => n.selected);
-  const selectedEdge = selectedNode ? undefined : edges.find((e) => e.selected);
+  const selectedNodes = nodes.filter((n) => n.selected);
+  const selectedIds = new Set(selectedNodes.map((n) => n.id));
+  // The box editor only makes sense for a single box.
+  const selectedNode =
+    selectedNodes.length === 1 ? selectedNodes[0] : undefined;
+  const implement = (scope: "selection" | "all") => {
+    const bp = toBlueprint(nodes, edges);
+    const ids = scope === "selection" ? selectedIds : undefined;
+    const brief = blueprintPrompt(bp, ids);
+    onImplement?.({
+      id: `blueprint-${crypto.randomUUID()}`,
+      slug: "blueprint",
+      title:
+        scope === "selection"
+          ? `Blueprint: ${selectedIds.size} selected box${selectedIds.size === 1 ? "" : "es"}`
+          : "Blueprint",
+      sourceCwd: cwd,
+      body: brief,
+      brief,
+    });
+  };
+  const drawFromCode = () => {
+    const brief = blueprintFromCodePrompt();
+    onImplement?.({
+      id: `blueprint-${crypto.randomUUID()}`,
+      slug: "blueprint",
+      title: "Blueprint from code",
+      sourceCwd: cwd,
+      body: brief,
+      brief,
+    });
+  };
+  const showStart = ready && nodes.length === 0 && !startedDrawing;
+  const selectedEdge =
+    selectedNodes.length > 0 ? undefined : edges.find((e) => e.selected);
   const patchNode = (patch: Partial<BoxData>) =>
     setNodes((ns) =>
       ns.map((n) =>
@@ -499,7 +631,43 @@ function BlueprintCanvas({ cwd }: { cwd: string }) {
 
   return (
     <div className="flex h-full w-full bg-background-base text-content">
-      <div className="min-w-0 flex-1" data-testid="blueprint-canvas">
+      <div className="relative min-w-0 flex-1" data-testid="blueprint-canvas">
+        {showStart ? (
+          <div className="absolute inset-0 z-10 grid place-items-center p-6">
+            <div className="w-full max-w-md rounded-xl border border-white/20 bg-background-base/95 p-5 text-[13px] text-content shadow-2xl">
+              <div className="text-[15px] font-semibold">No blueprint yet</div>
+              <div className="mt-1 text-content/60">
+                Draw this project's structure by hand, or let the agent read the
+                code and draw it for you.
+              </div>
+              <div className="mt-4 grid gap-2">
+                <button
+                  type="button"
+                  onClick={() => setStartedDrawing(true)}
+                  className="rounded-lg border border-content/10 px-3 py-2.5 text-left hover:bg-selection"
+                >
+                  <div className="font-medium">Start drawing</div>
+                  <div className="text-content/55">
+                    Empty canvas: add boxes from the sidebar.
+                  </div>
+                </button>
+                {onImplement ? (
+                  <button
+                    type="button"
+                    onClick={drawFromCode}
+                    className="rounded-lg border border-content/10 px-3 py-2.5 text-left hover:bg-selection"
+                  >
+                    <div className="font-medium">Draw it from the code</div>
+                    <div className="text-content/55">
+                      Opens a chat: the agent reads the codebase and writes the
+                      blueprint. Come back to Blueprint when it is done.
+                    </div>
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -520,6 +688,10 @@ function BlueprintCanvas({ cwd }: { cwd: string }) {
           fitView
           fitViewOptions={{ maxZoom: 1 }}
           proOptions={{ hideAttribution: true }}
+          // Cmd/Ctrl/Shift-click adds to the selection; Shift-drag draws a box.
+          multiSelectionKeyCode={["Meta", "Control", "Shift"]}
+          selectionOnDrag={selectMode}
+          panOnDrag={selectMode ? [1, 2] : true}
         >
           {/* Blueprint paper: fine grid with a stronger line every 5 squares. */}
           <Background
@@ -536,22 +708,56 @@ function BlueprintCanvas({ cwd }: { cwd: string }) {
             gap={80}
             color="rgba(255,255,255,0.3)"
           />
-          <Controls showInteractive={false}>
-            <ControlButton
-              onClick={arrange}
-              title="Arrange boxes"
-              aria-label="Arrange boxes"
-            >
-              <DashboardSquare />
-            </ControlButton>
-            <ControlButton
-              onClick={relayout}
-              title="Auto layout (follows the arrows)"
-              aria-label="Auto layout"
-            >
-              <Flowchart />
-            </ControlButton>
-          </Controls>
+          {/* The app's instant tooltip; native titles are slow in the webview. */}
+          <div {...controlTips.handlers}>
+            <Controls showInteractive={false}>
+              <ControlButton
+                onClick={() => travel(undo)}
+                disabled={history.past.length === 0}
+                data-rail-tip="Undo"
+                data-rail-tip-detail={`${MOD}Z`}
+                aria-label="Undo"
+              >
+                <UndoArrow className="blueprint-icon size-3" />
+              </ControlButton>
+              <ControlButton
+                onClick={() => travel(redo)}
+                disabled={history.future.length === 0}
+                data-rail-tip="Redo"
+                data-rail-tip-detail={`${SHIFT}${MOD}Z`}
+                aria-label="Redo"
+              >
+                <RedoArrow className="blueprint-icon size-3" />
+              </ControlButton>
+              <ControlButton
+                onClick={() => setSelectMode((on) => !on)}
+                data-rail-tip={selectMode ? "Select mode: on" : "Select mode"}
+                data-rail-tip-detail="Drag to select boxes"
+                aria-label="Select mode"
+                aria-pressed={selectMode}
+                className={selectMode ? "blueprint-control-on" : undefined}
+              >
+                <CursorMagicSelection className="blueprint-icon" />
+              </ControlButton>
+              <ControlButton
+                onClick={arrange}
+                data-rail-tip="Arrange"
+                data-rail-tip-detail="Space out overlapping boxes"
+                aria-label="Arrange boxes"
+              >
+                <DashboardSquare className="blueprint-icon" />
+              </ControlButton>
+              <ControlButton
+                onClick={relayout}
+                data-rail-tip="Auto layout"
+                data-rail-tip-detail="Redo the layout following the arrows"
+                aria-label="Auto layout"
+              >
+                <Flowchart className="blueprint-icon" />
+              </ControlButton>
+            </Controls>
+          </div>
+          {controlTips.tooltip}
           <CrispZoom />
         </ReactFlow>
       </div>
@@ -573,6 +779,35 @@ function BlueprintCanvas({ cwd }: { cwd: string }) {
           maskColor="rgba(0,0,0,0.35)"
           nodeColor={(n) => (n.data as BoxData).color}
         />
+        {onImplement ? (
+          <div>
+            <div className="mb-1.5 text-[11px] uppercase tracking-wide text-content/50">
+              Implement
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                disabled={!ready || selectedIds.size === 0}
+                onClick={() => implement("selection")}
+                className="rounded-md border border-content/10 px-2 py-1 hover:bg-selection disabled:opacity-40"
+              >
+                Selection
+              </button>
+              <button
+                type="button"
+                disabled={!ready || nodes.length === 0}
+                onClick={() => implement("all")}
+                className="rounded-md border border-content/10 px-2 py-1 hover:bg-selection disabled:opacity-40"
+              >
+                All
+              </button>
+            </div>
+            <div className="mt-2 text-content/50">
+              Opens a chat with the blueprint. The agent plans first and waits
+              for your OK.
+            </div>
+          </div>
+        ) : null}
         <div>
           <div className="mb-1.5 text-[11px] uppercase tracking-wide text-content/50">
             Add box
@@ -598,6 +833,12 @@ function BlueprintCanvas({ cwd }: { cwd: string }) {
             Drag from a box's right dot to another box to draw an arrow.
           </div>
         </div>
+
+        {selectedNodes.length > 1 ? (
+          <div className="text-content/60">
+            {selectedNodes.length} boxes selected
+          </div>
+        ) : null}
 
         {selectedNode ? (
           <div className="flex flex-col gap-2">
@@ -780,11 +1021,14 @@ class BlueprintBoundary extends Component<
   }
 }
 
-export function BlueprintView({ cwd }: { cwd: string }) {
+export function BlueprintView({
+  cwd,
+  onImplement,
+}: { cwd: string } & ImplementProps) {
   return (
     <BlueprintBoundary>
       <ReactFlowProvider>
-        <BlueprintCanvas cwd={cwd} />
+        <BlueprintCanvas cwd={cwd} onImplement={onImplement} />
       </ReactFlowProvider>
     </BlueprintBoundary>
   );

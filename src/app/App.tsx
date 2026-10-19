@@ -6825,6 +6825,8 @@ function Workspace({
   const onOpenFile = useCallback<OpenFileFn>(
     (path, navigation, options) => {
       closeMonoView();
+      // Files open in the workspace, which Blueprint mode hides.
+      setWorkspaceMode("Development");
       void (async () => {
         const fileCwd = gitCwdRef.current;
         const fileProjectCwd = sidebarCwdRef.current;
@@ -14127,7 +14129,13 @@ function Workspace({
 
                         <main className="relative flex min-h-0 min-w-0 flex-1">
                           {workspaceMode === "Blueprint" ? (
-                            <BlueprintView cwd={projectCwd} />
+                            <BlueprintView
+                              cwd={projectCwd}
+                              onImplement={(card) => {
+                                setWorkspaceMode("Development");
+                                onAddNoteToChat(card);
+                              }}
+                            />
                           ) : null}
                           {/* Hidden, not unmounted, so sessions keep running.
                               Hiding (instead of covering) also keeps WebKit
