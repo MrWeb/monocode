@@ -1104,7 +1104,10 @@ export function BlueprintView({
 }: { cwd: string } & ImplementProps) {
   return (
     <BlueprintBoundary>
-      <ReactFlowProvider>
+      {/* One canvas per project: a fresh viewport (fitted to that drawing),
+          selection and undo history, instead of carrying the last project's
+          zoom and position over. */}
+      <ReactFlowProvider key={cwd}>
         <BlueprintCanvas cwd={cwd} onImplement={onImplement} />
       </ReactFlowProvider>
     </BlueprintBoundary>
